@@ -1,0 +1,475 @@
+---
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE)
+library(tidyverse)
+library(lubridate)
+library(modelr)
+source("../scripts/viridis.R")
+source("../scripts/ggprob.R")
+```
+
+## Final Project (NFL investigation)
+
+### Carter Lindstrom, Riley Fischer, Aiden Marcoux
+
+### Introduction
+
+####    For our final project, we decided to analyze NFL regular season data from 2019. We used the play by play data to answer a few questions about which play types are most effective in certain situations, whether or not certain play types lead to more wins, and how play type changes during the course of a game. The questions we chose to analyze were:
+
+#### * What is a more effective play option from under 5 yards to score, pass or run?
+#### * What is a more effective play option on 3rd or 4th and short, pass or run?
+#### * Do teams that pass more often win more games?
+#### * When in the game does each play type occur more often?
+#### * How does play type change throughout the game for winning and losing teams?
+#### * How does the proportion of pass and run plays on the first (scripted) drive compare to the rest of the game and are offenses more effective on their first drive?
+#### * Do teams that go for it more on 4th down tend to win more games?
+
+#### **Umbrella Question:** How does play type affect offensive effectiveness and how does it change throughout the game?
+
+####    These questions were designed to give us insight on which play type is more advantageous at certain points in the game. We expect to see a correlation between winning and passing plays because passing plays tend to go more downfield and gain more yards. While there may be certain situations in which run plays are more effective, we predict that passing plays will generally be more advantageous. 
+
+
+
+### Background
+
+#### Our data records information from every single play of the 2019 NFL regular season. It includes 45,556 observations with 256 variables. Each observation represents a single play during the season. As seen from the number of variables, every aspect of each play is tracked, but we chose to look at a smaller handful of these variables to answer our questions. "Posteam" represents the team in possesion of the ball (on offense) during the play, while "defteam" is the defending team (on defense). "Yardline_100" is the yardline on a scale of 100 yards, "drive" shows the current number of offensive possesions that have occured in the game, and "down" represents what down (out of 4) the current play is. "Ydstogo" shows the amount of yards the "posteam" must gain to achieve a first down. "Play_type" documents what type of play occured and consists of one of the following: kickoff, run, pass, punt, field_goal, qb_kneel, qb_spike, extra_point, and no_play. The "goal_to_go" variable is 1 if the team has less than 10 yards to score a touchdown, and 0 if this is not the case. "Qtr" shows the current quarter in the game from 1 to 4, with 5 representing overtime. "Yards_gained" documents the amount of yards the team achieved on offense during the given play. "Touchdown" and "4th_down_converted" variables are 1 if a touchdown or 4th down is converted for a first down, respectively, and 0 if this is not the case. These are the main variables we utilized to investigate our questions.  This data was gathered from https://github.com/ryurko/nflscrapR-data. This data is extremely versatile, and allows examination of all sorts of questions pertaining to the 2019 regular season. It has often been noted that an NFL team's first drive is often "scripted", meaning that the plays run by the offense are often premeditated before the game even begins.  The plays run on the rest of the drives are much more fluid and subject to change. Hence, we sought to examine if this "scripting" of plays has an effect on the team's effectiveness in regards to yards gained, scoring, and play type.  Another large topic in the NFL is play calling on different down and distances, specifically goal line situations and fourth down.  We sought to examine how play type affects a team's overall effectiveness, especially in these situations. We also investigated how play type changes throughout the game, testing the common theory that losing teams tend to throw more as the game goes on, possibly due to game clock management, and urgency to gain large chunks of yards. Lastly, we wanted to see if attempting and converting 4th downs, typically meaning that the team is playing riskier, contributes to a higher win percentage on the season. It must be considered that we only examined the 2019 season, and what we found may be subject to change when examining other seasons or NFL history as a whole. The data set would be far too large if we looked at all seasons, or even a chunk of them.
+
+
+```{r, include=FALSE}
+ NFL <- read.csv("../data/reg_pbp_2019.csv")
+```
+
+
+### Analysis
+
+> What is a more effective play option from under 5 yards to score, pass or run?
+
+Here we estimate the effectiveness of a play type by finding a proportion of touchdowns for each play type from certain yard lines. We start by grouping the data by yards to go and play type when within the 5 yard line. We then summarize the data to find touchdown proportions from each yard line for both run and pass plays. 
+
+
+```{r question-1, echo=FALSE}
+
+NFL_under_5 <- NFL%>%
+  filter(goal_to_go == 1, yardline_100 <= 5, play_type == "run" | play_type == "pass")%>%
+  group_by(yardline_100, play_type)%>%
+  summarise(
+            total_att = sum(rush_attempt) + sum(pass_attempt),
+            total_td = sum(rush_touchdown) + sum(pass_touchdown),
+            td_prop = total_td / total_att
+            )
+NFL_under_5
+
+ggplot(NFL_under_5, aes(yardline_100, td_prop, fill = as.character(play_type))) +
+  geom_col(position = "dodge") +
+  scale_fill_discrete("play_type")+
+  ggtitle("Proportion of Touchdowns from Each Yardline")+
+  xlab("Yards to Go to Score")+
+  ylab("Proportion of Plays Resulting in Touchdowns")
+
+```
+
+In this bar chart we can see that run plays have a higher proportion of scoring touchdowns from 1 and 4 yards out, and passing play touchdown proportions are higher from 2, 3, and 5 yards out.
+
+> What is a more effective play option on 3rd and 4th and short, pass or run?
+
+Similar to the first question, we evaluate the effectiveness of the play type by finding the proportion of the play type that successfully completes a first down. We group the data by play type and yards to go for the first down, and summarize to get a proportion of successful plays.
+
+```{r question-2, echo=FALSE}
+
+NFL_4th_and_short <- NFL%>%
+  filter(down == 3 | down == 4, ydstogo <= 5, play_type == "run" | play_type == "pass")%>%
+  group_by(ydstogo, play_type)%>%
+  summarise(
+    total_att = sum(rush_attempt) + sum(pass_attempt),
+    total_first_down = sum(first_down_rush) + sum(first_down_pass),
+    first_down_prop = total_first_down / total_att
+  )
+NFL_4th_and_short
+
+ggplot(NFL_4th_and_short, aes(ydstogo, first_down_prop, fill = as.character(play_type))) +
+  geom_col(position = "dodge") +
+  scale_fill_discrete("play_type")+ 
+  ggtitle("Proportion of First Downs from Each Yardline on 3rd and 4th and Short")+
+  xlab("Yards to Go to First Down")+
+  ylab("Proportion of Plays Resulting in First Downs")
+
+```
+
+ In this bar chart we can see that run plays have a higher proportion of first downs for each yard distance besides 2 yards to go. 
+
+> Do teams that pass more often win more games?
+
+Here we use a linear model and a residual plot to see how the percentage of games won changes as the percentage of pass plays changes.
+
+```{r question-3a, echo=FALSE}
+temp<-NFL%>%
+  filter(game_seconds_remaining==0)%>%
+  mutate(winner=case_when(total_home_score> total_away_score ~ home_team,
+                          total_home_score< total_away_score ~away_team,
+                          TRUE~ "NA"))%>%
+  select(game_id,winner)
+
+
+q3a<-NFL%>%
+  left_join(temp,by="game_id")%>%
+  filter(!(is.na(play_type)|play_type=="no_play"))%>%
+  mutate(pass=as.numeric(play_type=="pass"))%>%
+  group_by(game_id,posteam)%>%
+  summarise(num_passes=sum(pass),
+            num_plays=n(),
+            #perc_as_pass=num_passes/num_plays,
+            winner=as.numeric(winner==posteam))%>%
+  filter(num_plays < 400)%>%
+  distinct()
+
+
+ggplot(q3a,aes(num_plays,num_passes))+
+  geom_point()+
+  geom_smooth(method=lm,se=F)+
+  geom_smooth(se=F,color="magenta")+
+  ggtitle("Number of Passes vs Number of Plays in a Game")+
+  xlab("Number of Plays")+
+  ylab("Number of Passes")
+
+```
+
+This graph is used to show that as the number of plays increase, the number of passes increase as well at a linear relationship. It makes sense that as the number of plays in a game increase, so does the number of passes. Since this is a linear relationship, it is good to use the percent of plays as passes in the following analysis.
+
+```{r question 3b, echo=FALSE}
+q3b<-q3a%>%
+  group_by(posteam)%>%
+  summarise(total_passes=sum(num_passes),
+            total_plays=sum(num_plays),
+            percent_passes=total_passes/total_plays,
+            total_wins=sum(winner),
+            total_num_games=n(),
+            percent_wins=total_wins/total_num_games
+            )
+ggplot(q3b,aes(percent_passes,percent_wins))+
+  geom_point()+
+  geom_smooth(se=FALSE,color="magenta")+
+  geom_smooth(method=lm,se=FALSE)+
+  xlab("Percent of Plays as Passes")+
+  ylab("Percent of Games Won")+
+  ggtitle("Percent of Passes vs Win Rate")
+
+lm1<-lm(percent_wins~percent_passes,data=q3b)
+summary(lm1)
+print(str_c("Correlation: ",cor(q3b$percent_wins,q3b$percent_passes)))
+
+```
+
+The results of this graph show that as the percent of plays which are passes increases, the percent of games won decreases.
+
+
+```{r question 3c, echo=FALSE}
+q3c<-q3b%>%
+  add_residuals(lm1,var = "resid")%>%
+  add_predictions(lm1)
+
+ggplot(q3c,aes(x=percent_passes,y=resid))+
+  geom_point()+
+  geom_hline(aes(yintercept=0),color="red",linetype="dashed")+
+  xlab("Percent of plays are passes")+
+  ylab("Residual(Percent of games won)")+
+  ggtitle("Residual plot")
+
+```
+
+The residual plot is used to show how well the linear regression fits to the data. The points seemed to be randomly scattered, suggesting the linear regression model is appropriate. 
+
+> When in the game do each play type occur more often?
+
+Here we plot the proportion of each play type in each quarter to see when certain play types are used more.
+
+```{r question-4, echo=FALSE}
+q4<-NFL%>%
+  filter(!(is.na(play_type)|play_type=="no_play"))%>%
+  group_by(qtr)%>%
+  summarise(total_plays=n(),
+            kickoff=sum(play_type=="kickoff")/total_plays,
+            run=sum(play_type=="run")/total_plays,
+            pass=sum(play_type=="pass")/total_plays,
+            punt=sum(play_type=="punt")/total_plays,
+            field_goal=sum(play_type=="field_goal")/total_plays,
+            extra_point=sum(play_type=="extra_point")/total_plays,
+            qb_kneel=sum(play_type=="qb_kneel")/total_plays,
+            qb_spike=sum(play_type=="qb_spike")/total_plays,
+            )%>%
+  select(!total_plays)%>%
+  pivot_longer(!qtr,names_to="play_type",values_to="percentage")
+ggplot(q4,aes(group=qtr,y=percentage,x=play_type,fill=factor(qtr)))+
+  geom_bar(position="dodge", stat="identity")+
+  xlab("Play Type")+
+  ylab("Probability")+
+  ggtitle("Probability of play type by quarter")+
+  labs(fill = "quarter")
+
+```
+
+In the above graph, the 5th quarter represents overtime. The number of quarter back kneels is higher in the 4th and 5th quarter. The number of passes is higher in the 3rd and 4th quarter compared to the 1st and 2nd quarter. The number of runs is higher in the 1st and 3rd quarter compared to the 2nd and 4th quarter.
+
+>  How does play type change throughout the game for winning and losing teams?
+
+Here we seek to investigate how play type (run or pass) changes in frequency throughout the game, stratifying by teams when winning or losing in the game. 
+
+```{r question-5, echo=FALSE}
+NFL_drive <- NFL %>% 
+  mutate(team_drive = case_when(drive %% 2 == 0 ~ (drive / 2),
+                                TRUE ~ (drive + 1) / 2)) %>% 
+  mutate(first_drive = case_when(team_drive == 1 ~ TRUE,
+                                 TRUE ~ FALSE)) %>%
+  mutate(offense_winning = case_when(posteam_score > defteam_score ~ "TRUE",
+                                      posteam_score < defteam_score ~ "FALSE",
+                                      TRUE ~ "TIE")) %>% 
+  mutate(field_goal_made = case_when(field_goal_result == "made" ~ 1,
+         TRUE ~ 0)) %>% 
+  filter(team_drive < 14)
+  
+NFL_winning <- NFL_drive %>% 
+  filter(play_type  == "run" | play_type == "pass") %>% 
+  filter(offense_winning == "TRUE" | drive == 1) %>% 
+  group_by(team_drive) %>%
+  summarize(num_rush = sum(rush_attempt), num_pass = sum(pass_attempt), total_play = n(), percent_pass = num_pass/total_play * 100, touchdowns = sum(touchdown), touchdown_pct = touchdowns/ total_play, avg_qtr = mean(qtr))
+
+
+NFL_losing <- NFL_drive %>% 
+  filter(play_type  == "run" | play_type == "pass") %>% 
+  filter(offense_winning == "FALSE") %>% 
+  group_by(team_drive) %>%
+  summarize(num_rush = sum(rush_attempt), num_pass = sum(pass_attempt), total_play = n(), percent_pass = (num_pass/total_play) *100, avg_qtr = mean(qtr))
+
+
+ggplot()+ 
+  geom_point(data = NFL_winning, mapping = aes(x = team_drive, y = percent_pass, color = "black"), size = 3)+
+  geom_point(data = NFL_losing, mapping = aes(x = team_drive, y = percent_pass, color = "red"), size = 3)+
+  scale_x_continuous(name = "Drive", breaks = seq(0,16,2))+
+  scale_y_continuous(name = "Percentage Pass", breaks = seq(20, 100, 5))+
+  ggtitle("Percentage Pass vs Number Drive")+
+  geom_smooth(data = NFL_winning, method = "lm", se = FALSE,  mapping = aes(x = team_drive, y =  percent_pass, color = "black"))+
+  geom_smooth(data = NFL_losing, method = "lm", se = FALSE,  mapping = aes(x = team_drive, y = percent_pass, color = "red"))+
+  scale_color_identity(name = "Legend",
+                          breaks = c("black", "red"),
+                          labels = c("Teams when winning", "Teams when losing"),
+                          guide = "legend")
+
+```
+
+Here, our data shows that the frequency of passing plays tends to increase later into the game (more drives) for teams when losing.  However for teams when winning, the frequency of passing begins to slightly increases but then sharply decreases after about 6 drives. By computing the average quarter for drive 6 we observe that this decrease tends to roughly happen midway through the second quarter.  Keep in mind we limited the number of drives to 13, considering that exceeding 13 drives in a game is very rare resulting in very small sample sizes for those.  
+
+
+> How does the proportion of pass and run plays on the first (scripted) drive compare to the rest of the game and are offenses more effective on their first drive?
+
+Here we seek to discover if a teams first drive, which is often planned before the game starts (scripted), is different than remaining drives in terms of play distribution and offensive effectiveness. The measures of offensive effectiveness are explained later in this question. 
+
+```{r question-6, echo=FALSE}
+
+NFL_pass_percent <- NFL_drive %>% 
+   filter(play_type  == "run" | play_type == "pass" | play_type == "field_goal") %>% 
+    group_by(first_drive) %>%
+  summarize(num_rush = sum(rush_attempt), num_pass = sum(pass_attempt), percent_pass = num_pass/sum(play_type != "field_goal"), percent_run = num_rush/sum(play_type != "field_goal"))
+print(NFL_pass_percent)
+
+
+ 
+ggplot(NFL_pass_percent)+ 
+  ggtitle("Percentage of Pass Plays Between First Drive and Remaining drives")+
+  geom_col(aes(x = reorder(first_drive, percent_pass), percent_pass), width = .25, fill = "pink") +
+  scale_x_discrete( labels = c("First Drive", "Remaining Drives"))+
+  scale_y_continuous(breaks = seq(0,.6,.05))+
+  ylab("Percent Pass")+
+  xlab("Drive")
+
+n_1 =17250 + 11621
+n_2 = 1682 + 1325
+p_pool = (17250 + 1682)/ (n_1 + n_2)
+p_false = NFL_pass_percent$percent_pass[1]
+p_true = NFL_pass_percent$percent_pass[2]	
+SE = sqrt(p_pool*(1-p_pool)*(1/n_1 + 1/n_2))
+z = (p_false - p_true)/ SE
+p_val = 1 - pnorm(z)
+
+print(str_c("p value: ", p_val))
+
+```
+
+
+H0: the proportion of passes on remaining drives = the proportion of passes on first drive 
+
+Ha: the proportion of passes on remaining drives > the proportion of passes on first drive 
+
+Significance threshold for p = 0.05
+
+We can assume that the proportions of passes between drives follow a normal distribution, are independent, and random. 
+
+We can observe that the first drive which is typically scripted, meaning the plays are pre-planned before the game consists of less pass plays than remaining drives. After running a difference in proportions significance test, we can strongly reject the null hypothesis that the difference in proportions is 0 with an observed p-value of 2.5487490524112e-05.  We can conclude that remaining drives have a significantly greater percentage of pass plays than the first drive. In other words, this shows that scripted plays consist of more runs. 
+
+
+```{r question 6b, echo=FALSE}
+NFL_first_drive_summary <-  NFL_drive %>%
+  filter(play_type  == "run" | play_type == "pass" | play_type == "field_goal") %>% 
+  group_by(first_drive) %>%
+  summarize(num_rush = sum(rush_attempt), num_pass = sum(pass_attempt), total_play = n(), touchdowns = sum(touchdown), touchdown_like = touchdowns/ total_play * 100, yards_per_attempt = sum(yards_gained)/total_play, field_goals = sum(field_goal_made), score_pct = (field_goals + touchdowns)/ total_play * 100)
+
+
+print(NFL_first_drive_summary)
+NFL_drive_first <- NFL_drive %>% 
+   filter(play_type  == "run" | play_type == "pass", first_drive == "TRUE") %>% 
+    select(yards_gained)
+
+NFL_drive_rest <- NFL_drive %>% 
+  filter(play_type  == "run" | play_type == "pass" , first_drive == "FALSE") %>% 
+  select(yards_gained)
+
+
+
+
+ggplot(NFL_first_drive_summary)+ 
+  ggtitle("Yards per Attempt Between First Drive and Remaining drives", subtitle = "Yards per attempt is denoted by the average amount of yards gained per play")+
+  geom_col(aes(x = reorder(first_drive, -yards_per_attempt), yards_per_attempt), width = .25, fill = "light blue") +
+  scale_x_discrete( labels = c("First Drive", "Remaining Drives"))+
+  scale_y_continuous(breaks = seq(0,6,.5))+
+  ylab("Yards per attempt")+
+  xlab("Drive")
+  
+
+ggplot(NFL_first_drive_summary)+ 
+  ggtitle("Touchdown Likelihood Between First Drive and Remaining drives", subtitle = "Touchdown likelihood is denoted by the chance of scoring a touchdown on any given play") + 
+  geom_col(aes(x = reorder(first_drive, touchdown_like), touchdown_like), width = .25, fill = "purple") +
+  scale_y_continuous(breaks = seq(0,4,.5))+
+  scale_x_discrete( labels = c("First Drive", "Remaining Drives"))+
+  ylab("Touchdown Likelihood (%)")+
+  xlab("Drive")
+
+
+
+print(t.test(NFL_drive_first, NFL_drive_rest))
+
+n_1 = NFL_first_drive_summary$total_play[1]
+n_2 = NFL_first_drive_summary$total_play[2]
+p_pool = (1189 + 117)/ (n_1 + n_2)
+p_false =  1189/n_1
+p_true =  117/n_2
+SE = sqrt(p_pool*(1-p_pool)*(1/n_1 + 1/n_2))
+z = (p_false - p_true)/ SE
+p_val = 1 - pnorm(z)
+
+print(str_c("p value for difference in proportions using touchdown likelihood: ", p_val))
+```
+
+First, lets look at the differences in yards per attempt between first drive and remaining drives. As shown in the graph, yards per attempt is denoted by the average amount of yards gained per play.
+
+H0: the true difference in means of yards per attempt between first drive and remaining drives is equal to 0.
+
+Ha: the true difference in means is not equal to 0
+
+Significance threshold for p = 0.05
+
+After using the t-test difference in sample means, we fail to reject the null-hypothesis with a p-value of 0.7805 that there is NOT a significant difference between average yards per play between first drive and remaining drives. This can also be seen from the column graph.  
+
+
+Now let's look at differences in touchdown likelihood between first drive and remaining drives. As shown in the graph, touchdown likelihood is denoted by the chance of scoring a touchdown on any given play. 
+
+H0: touchdown likelihood on remaining drives = touchdown likelihood on first drive
+
+Ha = touchdown likelihood on remaining drives > touchdown likelihood on first drive
+
+Significance threshold for p = 0.05
+
+We can assume that the proportions representing touchdown likelihood follow a normal distribution, are independent, and random. 
+
+We can observe from the graph that touchdown likelihood is slightly higher for remaining drives than first drive.  But using our difference in proportions significance test, we fail to reject our null hypothesis with a p-value 0.268209728341841. We see that there is NOT a significant difference in touchdown likelihood between first and remaining drives.
+
+
+Considering our previous examination of differences in play type between first and remaining drives, this may suggest that although play selection varies between the first drive and remaining drives, this doesn't seem to affect differences in overall average yards per play and touchdown likelihood per play. We see that a scripted drive doesn't produce greater effectiveness on offense.
+
+> Do teams that go for it more on 4th down tend to win more games?
+
+Here we are trying to investigate if the frequency of attempting to run or pass on 4th down, rather than following the traditional route of punting, affects a teams win percentage. We also show if converting more of these 4th down attempts (reaching a first down) has an affect on win percentage. 
+
+```{r question 7, echo=FALSE}
+records <- NFL %>% 
+  filter(game_seconds_remaining == 0) %>% 
+  mutate(winner = case_when(total_home_score > total_away_score ~ home_team,
+                             total_home_score < total_away_score ~ away_team,
+                            TRUE ~ "NA")) %>%
+  select(down, play_type, fourth_down_converted, ydstogo, yardline_100, posteam, winner, home_team, away_team) %>% 
+  group_by(winner) %>% 
+  summarize(wins = n() , loss_or_tie = 16 - wins, win_pct = wins/16) %>% 
+  mutate(team = winner) %>% 
+  select(team, wins, loss_or_tie, win_pct)
+  
+
+
+
+fourth_down <- NFL %>% 
+ filter(down == 4) %>%
+  mutate(fourth_attempt = case_when(play_type == "pass" | play_type == "run" ~ 1,
+                                    TRUE ~ 0)) %>% 
+  group_by(posteam) %>% 
+  summarize(total = n(), attempts = sum(fourth_attempt), made = sum(fourth_down_converted), pct_made = made/attempts * 100, pct_attempted = attempts/total) %>%  
+  mutate(team = posteam) %>%
+  select(team, -posteam, everything())
+
+fourth_records <-full_join(records, fourth_down) %>% 
+  filter(team != "NA")
+  
+print(fourth_records)
+ggplot(fourth_records, aes(pct_attempted, win_pct, label = team))+
+  geom_point()+
+  geom_text(aes(label=team),hjust=-.1, vjust=-.1, size = 3)+
+  xlab("Percent Attempted")+
+  ylab("Win Percentage")+
+  ggtitle("Percent of 4th Downs Attempted vs Win Percentage")+
+  geom_smooth(method = "lm", se = FALSE)
+
+ggplot(fourth_records, aes(pct_made, win_pct,  label = team))+
+  geom_point()+
+  geom_text(aes(label=team),hjust=-.1, vjust=-.1, size = 3)+
+  xlab("Percent Converted")+
+  ylab("Win Percentage")+
+  ggtitle("Percent of 4th Downs Converted vs Win Percentage")+
+  geom_smooth(method = "lm", se = FALSE)
+  
+print(cor(fourth_records$pct_attempted, fourth_records$win_pct))
+print(cor(fourth_records$pct_made, fourth_records$win_pct))
+
+lm_attempt =  lm(fourth_records$win_pct ~ fourth_records$pct_attempted )
+lm_convert = lm(fourth_records$pct_made ~ fourth_records$win_pct)
+
+
+print(summary(lm_attempt))
+print(summary(lm_convert))
+
+```
+
+Correlation of percent of 4th downs attempted and win percentage: -0.219
+  
+  p-value of regression line of this relationship: 0.2274
+
+Correlation of percent of 4th downs converted and win percentage = 0.077
+  
+  p-value of regression line of this relationship: 0.6745
+
+
+Here we observe correlations close to zero for both percent of 4th downs attempted and percent converted plotted against win percentage.  The regression lines of these relationship don't seem to be significant with both p-values being over 0.05. This suggests little evidence that there is any linear relationship between the percent of 4th downs attempted or percent of 4th downs converted and win percentage.
+
+
+### Conclusion
+
+#### Overall, the choice between run vs pass varies widely based upon many variables. When only a few yards out or less, the run play seems to be the best choice. As yardage increases, pass plays are generally more successful. On 4th and short, the most effective option is run plays. The percent of plays that a team makes that are passes seems to have a strong infulence on a teams win rate. As the percent of plays which are passes increase, a team tends to have a worse win rate. In the 1st and 3rd quarter it is more likely to see more plays which are runs compared to the other quarters. In the 2nd and 4th quarter it is more likely to see pass plays compared to the other quarters. As the game goes on, the percentage of plays which are passes tends to increase. On average the first drive consists of less pass plays when compared to remaining drives.
+
+#### Some of the shortcomings of the data is that we did not find much correlation between 4th downs attempted or percent of 4th downs converted and win percentage. This could be due to the fact that some of the variables had too small of an impact for them to be noticable.
+
+#### Overall, football is very complicated and will forever be changing. This means there is a lot of different forms of analysis that can be done. For example, this data set was very large and we only covered a few of the many variables. A different method we could have used is simulation and using that to confirm our results. One thing to note is that this data focused on the 2019 year. It might be helpful to look at how some variables change with respect to the year. This could include new strategies teams adopt over the years.
+
+#### In the end, the data analysis showed what plays tend to be most sucessful in certain situations. While this does show a correlation, this does not mean any play is best in a certain senario as there could be other factors to consider which are more important.
+
+
+
+
+
+
